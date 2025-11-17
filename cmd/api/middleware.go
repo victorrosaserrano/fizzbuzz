@@ -20,7 +20,11 @@ func (app *application) recoverPanic(next http.Handler) http.Handler {
 
 func (app *application) logRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		app.logger.Printf("%s - %s %s %s", r.RemoteAddr, r.Proto, r.Method, r.URL.RequestURI())
+		app.logger.Info("HTTP request",
+			"addr", r.RemoteAddr,
+			"proto", r.Proto,
+			"method", r.Method,
+			"uri", r.URL.RequestURI())
 		next.ServeHTTP(w, r)
 	})
 }
