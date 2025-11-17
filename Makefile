@@ -25,8 +25,9 @@ run/api:
 .PHONY: build/api
 build/api:
 	@echo 'Building cmd/api...'
-	go build -ldflags='-s' -o=./bin/api ./cmd/api
-	GOOS=linux GOARCH=amd64 go build -ldflags='-s' -o=./bin/linux_amd64/api ./cmd/api
+	@mkdir -p ./bin/linux_amd64
+	go build -ldflags="-s -w -X 'main.buildTime=$$(date -u +"%Y-%m-%d %H:%M:%S %Z")' -X 'main.version=$$(git describe --always --dirty --tags 2>/dev/null || echo "unknown")'" -o=./bin/api ./cmd/api
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X 'main.buildTime=$$(date -u +"%Y-%m-%d %H:%M:%S %Z")' -X 'main.version=$$(git describe --always --dirty --tags 2>/dev/null || echo "unknown")'" -o=./bin/linux_amd64/api ./cmd/api
 
 # ==================================================================================== #
 # QUALITY CONTROL
@@ -42,9 +43,9 @@ audit:
 	go fmt ./...
 	@echo 'Vetting code...'
 	go vet ./...
-	staticcheck ./...
+	staticcheck -checks="all,-U1000" ./...
 	@echo 'Running tests...'
-	go test -race -vet=off ./...
+	go test -race -cover -vet=off ./...
 
 ## vendor: tidy and vendor dependencies
 .PHONY: vendor
@@ -71,4 +72,4 @@ run: run/api
 .PHONY: test
 test:
 	@echo 'Running tests...'
-	go test -race -vet=off ./...
+	go test -race -cover -vet=off ./...

@@ -52,13 +52,13 @@ func (app *application) errorJSON(w http.ResponseWriter, r *http.Request, status
 
 	err := app.writeJSON(w, status, env, nil)
 	if err != nil {
-		app.logger.Printf("error writing JSON response: %v", err)
+		app.logger.Error("error writing JSON response", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 	}
 }
 
 func (app *application) serverErrorResponse(w http.ResponseWriter, r *http.Request, err error) {
-	app.logger.Printf("server error: %v", err)
+	app.logger.Error("server error", "error", err)
 	message := "the server encountered a problem and could not process your request"
 	app.errorJSON(w, r, http.StatusInternalServerError, message)
 }

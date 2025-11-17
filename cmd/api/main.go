@@ -5,7 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,9 +13,14 @@ import (
 	"time"
 )
 
+var (
+	buildTime string
+	version   string
+)
+
 type application struct {
 	config config
-	logger *log.Logger
+	logger *slog.Logger
 }
 
 type config struct {
@@ -30,7 +35,17 @@ func main() {
 	flag.StringVar(&cfg.env, "env", "development", "Environment (development|staging|production)")
 	flag.Parse()
 
-	logger := log.New(os.Stdout, "", log.Ldate|log.Ltime)
+	var logger *slog.Logger
+
+	if cfg.env == "development" {
+		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}))
+	} else {
+		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		}))
+	}
 
 	app := &application{
 		config: cfg,
@@ -41,8 +56,8 @@ func main() {
 		Addr:         fmt.Sprintf(":%d", cfg.port),
 		Handler:      app.routes(),
 		IdleTimeout:  time.Minute,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
 	}
 
 	shutdownError := make(chan error)
@@ -52,7 +67,7 @@ func main() {
 		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 		s := <-quit
 
-		app.logger.Printf("shutting down server with signal %s", s)
+		logger.Info("shutting down server", "signal", s)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -62,22 +77,23 @@ func main() {
 			shutdownError <- err
 		}
 
-		app.logger.Printf("completing background tasks")
+		logger.Info("completing background tasks")
 
 		shutdownError <- nil
 	}()
 
-	app.logger.Printf("starting %s server on %s", cfg.env, srv.Addr)
+	logger.Info("starting server", "addr", srv.Addr, "env", cfg.env, "version", version, "buildTime", buildTime)
 
 	err := srv.ListenAndServe()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+		logger.Error("server failed", "error", err)
+		os.Exit(1)
 	}
 
-	err = <-shutdownError
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("shutdown failed", "error", err)
+		os.Exit(1)
 	}
 
-	app.logger.Printf("stopped server")
+	logger.Info("stopped server")
 }
