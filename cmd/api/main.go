@@ -67,7 +67,10 @@ func main() {
 		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 		s := <-quit
 
-		logger.Info("shutting down server", "signal", s)
+		logger.Info("shutdown initiated",
+			"signal", s,
+			"timeout", "5s",
+			"addr", srv.Addr)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -77,7 +80,8 @@ func main() {
 			shutdownError <- err
 		}
 
-		logger.Info("completing background tasks")
+		logger.Info("background tasks completed",
+			"shutdown_timeout", "5s")
 
 		shutdownError <- nil
 	}()
@@ -86,14 +90,22 @@ func main() {
 
 	err := srv.ListenAndServe()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		logger.Error("server failed", "error", err)
+		logger.Error("server failed to start or crashed",
+			"error", err,
+			"addr", srv.Addr,
+			"env", cfg.env)
 		os.Exit(1)
 	}
 
+	err = <-shutdownError
 	if err != nil {
-		logger.Error("shutdown failed", "error", err)
+		logger.Error("graceful shutdown failed",
+			"error", err,
+			"addr", srv.Addr)
 		os.Exit(1)
 	}
 
-	logger.Info("stopped server")
+	logger.Info("server stopped gracefully",
+		"addr", srv.Addr,
+		"env", cfg.env)
 }
