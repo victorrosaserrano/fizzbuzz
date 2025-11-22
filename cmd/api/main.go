@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"fizzbuzz/internal/data"
+	"fizzbuzz/internal/jsonlog"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -24,7 +24,7 @@ var (
 
 type application struct {
 	config     config
-	logger     *slog.Logger
+	logger     *jsonlog.Logger
 	statistics statisticsHandler
 }
 
@@ -52,7 +52,7 @@ func (sh *statisticsHandler) GetMostFrequent(ctx context.Context) (*data.Statist
 
 // Legacy compatibility methods for transition period
 // RecordLegacy provides legacy-compatible Record method (no context, no error return)
-func (sh *statisticsHandler) RecordLegacy(input *data.FizzBuzzInput, logger *slog.Logger) {
+func (sh *statisticsHandler) RecordLegacy(input *data.FizzBuzzInput, logger *jsonlog.Logger) {
 	// Create context with reasonable timeout for legacy API compatibility
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -69,7 +69,7 @@ func (sh *statisticsHandler) RecordLegacy(input *data.FizzBuzzInput, logger *slo
 }
 
 // GetMostFrequentLegacy provides legacy-compatible GetMostFrequent method
-func (sh *statisticsHandler) GetMostFrequentLegacy(logger *slog.Logger) *data.StatisticsEntry {
+func (sh *statisticsHandler) GetMostFrequentLegacy(logger *jsonlog.Logger) *data.StatisticsEntry {
 	// Create context with reasonable timeout for legacy API compatibility
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -87,8 +87,9 @@ func (sh *statisticsHandler) GetMostFrequentLegacy(logger *slog.Logger) *data.St
 }
 
 type config struct {
-	port int
-	env  string
+	port     int
+	env      string
+	logLevel string
 
 	db struct {
 		host         string
@@ -159,7 +160,7 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 
 // initializePostgreSQLStatistics initializes PostgreSQL connection pool and statistics service
 // Story 4.6: Direct PostgreSQL access with connection pooling and context-aware operations
-func initializePostgreSQLStatistics(cfg config, logger *slog.Logger) (statisticsHandler, error) {
+func initializePostgreSQLStatistics(cfg config, logger *jsonlog.Logger) (statisticsHandler, error) {
 	// Build PostgreSQL connection string
 	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		cfg.db.host, cfg.db.port, cfg.db.user, cfg.db.password, cfg.db.name, cfg.db.sslMode)
@@ -220,6 +221,7 @@ func main() {
 	// Command line flags (take precedence over environment variables)
 	flag.IntVar(&cfg.port, "port", 4000, "API server port")
 	flag.StringVar(&cfg.env, "env", "development", "Environment (development|staging|production)")
+	flag.StringVar(&cfg.logLevel, "log-level", "info", "Log level (debug|info|warn|error)")
 
 	flag.Parse()
 
@@ -227,6 +229,7 @@ func main() {
 	// API Configuration
 	cfg.port = getEnvInt("API_PORT", cfg.port)
 	cfg.env = getEnvString("API_ENV", cfg.env)
+	cfg.logLevel = getEnvString("LOG_LEVEL", cfg.logLevel)
 
 	// Database Configuration
 	cfg.db.host = getEnvString("DB_HOST", "localhost")
@@ -244,17 +247,22 @@ func main() {
 	cfg.limiter.rps = getEnvFloat("RATE_LIMITER_RPS", 10.0)
 	cfg.limiter.burst = getEnvInt("RATE_LIMITER_BURST", 20)
 
-	var logger *slog.Logger
-
-	if cfg.env == "development" {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		}))
-	} else {
-		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		}))
+	// Parse log level
+	var level jsonlog.Level
+	switch cfg.logLevel {
+	case "debug":
+		level = jsonlog.LevelDebug
+	case "info":
+		level = jsonlog.LevelInfo
+	case "warn":
+		level = jsonlog.LevelWarn
+	case "error":
+		level = jsonlog.LevelError
+	default:
+		level = jsonlog.LevelInfo
 	}
+
+	logger := jsonlog.New(os.Stdout, level, cfg.env)
 
 	// Story 4.6: Initialize PostgreSQL Statistics with Connection Pooling
 	// Direct PostgreSQL access approach with proper connection pooling and context-aware operations

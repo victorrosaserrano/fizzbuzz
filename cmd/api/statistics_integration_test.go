@@ -5,19 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"fizzbuzz/internal/data"
+	"fizzbuzz/internal/jsonlog"
 )
 
-func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}))
+func testLogger() *jsonlog.Logger {
+	return jsonlog.New(io.Discard, jsonlog.LevelDebug, "test")
 }
 
 func TestStatisticsIntegration(t *testing.T) {

@@ -16,10 +16,12 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodPost, "/v1/fizzbuzz", app.fizzbuzzHandler)
 	router.HandlerFunc(http.MethodGet, "/v1/statistics", app.statisticsHandler)
 
-	return app.recoverPanic(app.logRequest(router))
+	return app.correlationID(app.logRequest(app.recoverPanic(router)))
 }
 
 func (app *application) healthcheckHandler(w http.ResponseWriter, r *http.Request) {
+	app.logger.InfoWithContext(r.Context(), "health check requested")
+
 	env := envelope{
 		"status": "available",
 		"system_info": map[string]string{

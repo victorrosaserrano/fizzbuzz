@@ -41,10 +41,10 @@ func (app *application) fizzbuzzHandler(w http.ResponseWriter, r *http.Request) 
 	// Use defensive programming to ensure statistics failure doesn't affect response
 	func() {
 		defer func() {
-			if r := recover(); r != nil {
+			if rec := recover(); rec != nil {
 				// Log statistics recording failure but continue with response
-				app.logger.Error("statistics recording failed",
-					"error", r,
+				app.logger.ErrorWithContext(r.Context(), "statistics recording failed",
+					"error", rec,
 					"method", "POST",
 					"uri", "/v1/fizzbuzz")
 			}
@@ -57,7 +57,7 @@ func (app *application) fizzbuzzHandler(w http.ResponseWriter, r *http.Request) 
 		err := app.statistics.Record(ctx, &input)
 		if err != nil {
 			// Log error but don't affect the main response
-			app.logger.Warn("statistics recording failed",
+			app.logger.WarnWithContext(ctx, "statistics recording failed",
 				"error", err,
 				"method", "POST",
 				"uri", "/v1/fizzbuzz",
@@ -92,7 +92,7 @@ func (app *application) statisticsHandler(w http.ResponseWriter, r *http.Request
 
 	mostFrequent, err := app.statistics.GetMostFrequent(ctx)
 	if err != nil {
-		app.logger.Error("failed to retrieve statistics",
+		app.logger.ErrorWithContext(ctx, "failed to retrieve statistics",
 			"error", err,
 			"method", "GET",
 			"uri", "/v1/statistics")

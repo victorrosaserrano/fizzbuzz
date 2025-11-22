@@ -96,7 +96,7 @@ func (app *application) errorJSON(w http.ResponseWriter, r *http.Request, status
 
 	err := app.writeJSON(w, status, env, nil)
 	if err != nil {
-		app.logger.Error("error writing JSON response",
+		app.logger.ErrorWithContext(r.Context(), "error writing JSON response",
 			"error", err,
 			"status", status,
 			"response_type", "error_json")
@@ -105,7 +105,7 @@ func (app *application) errorJSON(w http.ResponseWriter, r *http.Request, status
 }
 
 func (app *application) serverErrorResponse(w http.ResponseWriter, r *http.Request, err error) {
-	app.logger.Error("server error",
+	app.logger.ErrorWithContext(r.Context(), "server error",
 		"error", err,
 		"method", r.Method,
 		"uri", r.URL.RequestURI(),
