@@ -4,12 +4,12 @@ package main
 
 import (
 	"context"
-	"log/slog"
-	"os"
+	"io"
 	"testing"
 	"time"
 
 	"fizzbuzz/internal/data"
+	"fizzbuzz/internal/jsonlog"
 )
 
 // BenchmarkStatisticsRecord benchmarks the Record operation performance
@@ -19,9 +19,7 @@ func BenchmarkStatisticsRecord(b *testing.B) {
 	}
 
 	cfg := getTestConfig()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelError, // Minimize logging for benchmarks
-	}))
+	logger := jsonlog.New(io.Discard, jsonlog.LevelError, "test") // Minimize logging for benchmarks
 
 	handler, err := initializePostgreSQLStatistics(cfg, logger)
 	if err != nil {
@@ -58,9 +56,7 @@ func BenchmarkStatisticsGetMostFrequent(b *testing.B) {
 	}
 
 	cfg := getTestConfig()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelError, // Minimize logging for benchmarks
-	}))
+	logger := jsonlog.New(io.Discard, jsonlog.LevelError, "test") // Minimize logging for benchmarks
 
 	handler, err := initializePostgreSQLStatistics(cfg, logger)
 	if err != nil {
@@ -120,9 +116,7 @@ func BenchmarkConnectionPoolUtilization(b *testing.B) {
 			cfg := getTestConfig()
 			cfg.db.maxConns = tt.maxConns
 
-			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-				Level: slog.LevelError,
-			}))
+			logger := jsonlog.New(io.Discard, jsonlog.LevelError, "test")
 
 			handler, err := initializePostgreSQLStatistics(cfg, logger)
 			if err != nil {
@@ -161,9 +155,7 @@ func BenchmarkMixedOperations(b *testing.B) {
 	}
 
 	cfg := getTestConfig()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelError,
-	}))
+	logger := jsonlog.New(io.Discard, jsonlog.LevelError, "test")
 
 	handler, err := initializePostgreSQLStatistics(cfg, logger)
 	if err != nil {
@@ -221,9 +213,7 @@ func BenchmarkStatisticsWithTimeout(b *testing.B) {
 	}
 
 	cfg := getTestConfig()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelError,
-	}))
+	logger := jsonlog.New(io.Discard, jsonlog.LevelError, "test")
 
 	handler, err := initializePostgreSQLStatistics(cfg, logger)
 	if err != nil {

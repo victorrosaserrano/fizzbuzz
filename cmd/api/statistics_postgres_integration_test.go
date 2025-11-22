@@ -4,12 +4,13 @@ package main
 
 import (
 	"context"
-	"log/slog"
+	"io"
 	"os"
 	"testing"
 	"time"
 
 	"fizzbuzz/internal/data"
+	"fizzbuzz/internal/jsonlog"
 )
 
 // TestPostgreSQLStatisticsInitialization tests the PostgreSQL statistics initialization
@@ -198,8 +199,6 @@ func getTestConfig() config {
 	}
 }
 
-func getTestLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}))
+func getTestLogger() *jsonlog.Logger {
+	return jsonlog.New(io.Discard, jsonlog.LevelDebug, "test")
 }

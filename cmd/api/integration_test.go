@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,20 +11,20 @@ import (
 	"time"
 
 	"fizzbuzz/internal/data"
+	"fizzbuzz/internal/jsonlog"
 )
 
 // newTestApplication creates a test application instance with a test logger
 // Each call creates a fresh mock repository for proper test isolation
 func newTestApplication(t *testing.T) *application {
 	// Create a test logger that discards output
-	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}))
+	logger := jsonlog.New(io.Discard, jsonlog.LevelDebug, "test")
 
 	return &application{
 		config: config{
-			port: 4000,
-			env:  "test",
+			port:     4000,
+			env:      "test",
+			logLevel: "debug",
 		},
 		logger:     logger,
 		statistics: statisticsHandler{service: data.NewStatisticsService(newMockRepository())},

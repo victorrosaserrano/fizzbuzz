@@ -2,19 +2,22 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"net/http/httptest"
 	"testing"
 
 	"fizzbuzz/internal/data"
+	"fizzbuzz/internal/jsonlog"
 )
 
 func BenchmarkFizzBuzzWithStatistics(b *testing.B) {
 	app := &application{
 		config: config{
-			port: 4000,
-			env:  "test",
+			port:     4000,
+			env:      "test",
+			logLevel: "info",
 		},
-		logger:     testLogger(),
+		logger:     jsonlog.New(io.Discard, jsonlog.LevelInfo, "test"),
 		statistics: statisticsHandler{service: data.NewStatisticsService(&mockRepository{})},
 	}
 
@@ -45,7 +48,7 @@ func BenchmarkFizzBuzzWithoutStatistics(b *testing.B) {
 			port: 4000,
 			env:  "test",
 		},
-		logger: testLogger(),
+		logger: jsonlog.New(io.Discard, jsonlog.LevelInfo, "test"),
 		// No statistics tracker
 	}
 
