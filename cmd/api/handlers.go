@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"fizzbuzz/internal/data"
 	"fizzbuzz/internal/validator"
@@ -35,7 +37,7 @@ func (app *application) fizzbuzzHandler(w http.ResponseWriter, r *http.Request) 
 	// Execute the FizzBuzz algorithm using existing implementation
 	result := data.FizzBuzz(input.Int1, input.Int2, input.Limit, input.Str1, input.Str2)
 
-	// Record statistics for successful request after algorithm execution
+	// Story 4.6: Record statistics with context-aware PostgreSQL operations
 	// Use defensive programming to ensure statistics failure doesn't affect response
 	func() {
 		defer func() {
@@ -47,7 +49,20 @@ func (app *application) fizzbuzzHandler(w http.ResponseWriter, r *http.Request) 
 					"uri", "/v1/fizzbuzz")
 			}
 		}()
-		app.statistics.Record(&input)
+
+		// Create context with timeout for statistics recording
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		err := app.statistics.Record(ctx, &input)
+		if err != nil {
+			// Log error but don't affect the main response
+			app.logger.Warn("statistics recording failed",
+				"error", err,
+				"method", "POST",
+				"uri", "/v1/fizzbuzz",
+				"parameters", input)
+		}
 	}()
 
 	// Create output struct with result
@@ -71,8 +86,19 @@ func (app *application) statisticsHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Get most frequent statistics entry
-	mostFrequent := app.statistics.GetMostFrequent()
+	// Story 4.6: Get most frequent statistics with context-aware PostgreSQL operations
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	mostFrequent, err := app.statistics.GetMostFrequent(ctx)
+	if err != nil {
+		app.logger.Error("failed to retrieve statistics",
+			"error", err,
+			"method", "GET",
+			"uri", "/v1/statistics")
+		app.serverErrorResponse(w, r, err)
+		return
+	}
 
 	// Prepare response data structure
 	var responseData envelope
@@ -91,7 +117,7 @@ func (app *application) statisticsHandler(w http.ResponseWriter, r *http.Request
 	}
 
 	// Return success response using JSON envelope format
-	err := app.writeJSON(w, http.StatusOK, envelope{"data": responseData}, nil)
+	err = app.writeJSON(w, http.StatusOK, envelope{"data": responseData}, nil)
 	if err != nil {
 		app.serverErrorResponse(w, r, err)
 	}
