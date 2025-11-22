@@ -144,3 +144,7 @@ func (app *application) failedValidationResponse(w http.ResponseWriter, r *http.
 		"details": errors,
 	})
 }
+
+func (app *application) errorResponse(w http.ResponseWriter, r *http.Request, status int, message string) {
+	app.errorJSON(w, r, status, message)
+}

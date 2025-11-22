@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"fizzbuzz/internal/data"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
@@ -24,7 +25,65 @@ var (
 type application struct {
 	config     config
 	logger     *slog.Logger
-	statistics *data.StatisticsTracker
+	statistics statisticsHandler
+}
+
+// statisticsHandler provides interface for statistics operations
+// Story 4.6: Direct PostgreSQL access with context-aware operations
+type statisticsHandler struct {
+	service *data.StatisticsService // PostgreSQL-backed implementation only
+}
+
+// Record records statistics using PostgreSQL service with context and timeout
+func (sh *statisticsHandler) Record(ctx context.Context, input *data.FizzBuzzInput) error {
+	if sh.service == nil {
+		return errors.New("statistics service not initialized")
+	}
+	return sh.service.Record(ctx, input)
+}
+
+// GetMostFrequent gets most frequent statistics from PostgreSQL with context
+func (sh *statisticsHandler) GetMostFrequent(ctx context.Context) (*data.StatisticsEntry, error) {
+	if sh.service == nil {
+		return nil, errors.New("statistics service not initialized")
+	}
+	return sh.service.GetMostFrequent(ctx)
+}
+
+// Legacy compatibility methods for transition period
+// RecordLegacy provides legacy-compatible Record method (no context, no error return)
+func (sh *statisticsHandler) RecordLegacy(input *data.FizzBuzzInput, logger *slog.Logger) {
+	// Create context with reasonable timeout for legacy API compatibility
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	err := sh.Record(ctx, input)
+	if err != nil {
+		if logger != nil {
+			logger.Warn("legacy statistics recording failed",
+				"error", err,
+				"operation", "RecordLegacy",
+				"parameters", input)
+		}
+	}
+}
+
+// GetMostFrequentLegacy provides legacy-compatible GetMostFrequent method
+func (sh *statisticsHandler) GetMostFrequentLegacy(logger *slog.Logger) *data.StatisticsEntry {
+	// Create context with reasonable timeout for legacy API compatibility
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	entry, err := sh.GetMostFrequent(ctx)
+	if err != nil {
+		if logger != nil {
+			logger.Warn("legacy statistics retrieval failed",
+				"error", err,
+				"operation", "GetMostFrequentLegacy")
+		}
+		return nil
+	}
+	return entry
 }
 
 type config struct {
@@ -98,12 +157,70 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 	return defaultValue
 }
 
+// initializePostgreSQLStatistics initializes PostgreSQL connection pool and statistics service
+// Story 4.6: Direct PostgreSQL access with connection pooling and context-aware operations
+func initializePostgreSQLStatistics(cfg config, logger *slog.Logger) (statisticsHandler, error) {
+	// Build PostgreSQL connection string
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		cfg.db.host, cfg.db.port, cfg.db.user, cfg.db.password, cfg.db.name, cfg.db.sslMode)
+
+	// Configure connection pool with optimized settings for FizzBuzz workload
+	poolConfig, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return statisticsHandler{}, fmt.Errorf("failed to parse database config: %w", err)
+	}
+
+	// Connection pooling configuration for optimal performance
+	poolConfig.MaxConns = int32(cfg.db.maxConns)
+	poolConfig.MinConns = 2                         // Maintain minimum connections for immediate availability
+	poolConfig.MaxConnLifetime = cfg.db.maxLifetime // Connection refresh for long-running applications
+	poolConfig.MaxConnIdleTime = 10 * time.Minute   // Close idle connections to free resources
+	poolConfig.HealthCheckPeriod = 1 * time.Minute  // Regular health checks for connection validity
+
+	// Context with timeout for initial connection setup
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Create connection pool with timeout
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		return statisticsHandler{}, fmt.Errorf("failed to create connection pool: %w", err)
+	}
+
+	// Test connectivity with ping
+	err = pool.Ping(ctx)
+	if err != nil {
+		pool.Close()
+		return statisticsHandler{}, fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	// Initialize repository with optimized timeout for FizzBuzz operations
+	operationTimeout := 3 * time.Second // Fast response times for API endpoints
+	repository := data.NewPostgreSQLStatisticsRepository(pool, operationTimeout)
+
+	// Create statistics service with repository
+	service := data.NewStatisticsService(repository)
+
+	logger.Info("PostgreSQL statistics initialized successfully",
+		"db_host", cfg.db.host,
+		"db_port", cfg.db.port,
+		"db_name", cfg.db.name,
+		"max_connections", cfg.db.maxConns,
+		"operation_timeout", operationTimeout,
+		"pool_health_check_period", poolConfig.HealthCheckPeriod)
+
+	return statisticsHandler{
+		service: service,
+	}, nil
+}
+
 func main() {
 	var cfg config
 
 	// Command line flags (take precedence over environment variables)
 	flag.IntVar(&cfg.port, "port", 4000, "API server port")
 	flag.StringVar(&cfg.env, "env", "development", "Environment (development|staging|production)")
+
 	flag.Parse()
 
 	// Environment variable configuration with fallbacks
@@ -139,10 +256,21 @@ func main() {
 		}))
 	}
 
+	// Story 4.6: Initialize PostgreSQL Statistics with Connection Pooling
+	// Direct PostgreSQL access approach with proper connection pooling and context-aware operations
+	statsHandler, err := initializePostgreSQLStatistics(cfg, logger)
+	if err != nil {
+		logger.Error("failed to initialize PostgreSQL statistics, terminating application",
+			"error", err,
+			"db_host", cfg.db.host,
+			"db_port", cfg.db.port)
+		os.Exit(1)
+	}
+
 	app := &application{
 		config:     cfg,
 		logger:     logger,
-		statistics: data.NewStatisticsTracker(),
+		statistics: statsHandler,
 	}
 
 	srv := &http.Server{
@@ -173,6 +301,18 @@ func main() {
 			shutdownError <- err
 		}
 
+		// Story 4.6: Cleanup PostgreSQL connections on shutdown
+		if app.statistics.service != nil {
+			logger.Info("closing database connections")
+
+			err := app.statistics.service.Close()
+			if err != nil {
+				logger.Error("failed to close database connections", "error", err)
+			} else {
+				logger.Info("database connections closed successfully")
+			}
+		}
+
 		logger.Info("background tasks completed",
 			"shutdown_timeout", "5s")
 
@@ -191,10 +331,10 @@ func main() {
 		"rate_limiter_enabled", cfg.limiter.enabled,
 		"rate_limiter_rps", cfg.limiter.rps)
 
-	err := srv.ListenAndServe()
-	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+	listenErr := srv.ListenAndServe()
+	if listenErr != nil && !errors.Is(listenErr, http.ErrServerClosed) {
 		logger.Error("server failed to start or crashed",
-			"error", err,
+			"error", listenErr,
 			"addr", srv.Addr,
 			"env", cfg.env)
 		os.Exit(1)

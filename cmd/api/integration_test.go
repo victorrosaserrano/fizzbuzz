@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -8,11 +9,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"fizzbuzz/internal/data"
 )
 
 // newTestApplication creates a test application instance with a test logger
+// Each call creates a fresh mock repository for proper test isolation
 func newTestApplication(t *testing.T) *application {
 	// Create a test logger that discards output
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{
@@ -25,7 +28,7 @@ func newTestApplication(t *testing.T) *application {
 			env:  "test",
 		},
 		logger:     logger,
-		statistics: data.NewStatisticsTracker(),
+		statistics: statisticsHandler{service: data.NewStatisticsService(newMockRepository())},
 	}
 }
 
@@ -480,4 +483,108 @@ func TestConcurrentRequests(t *testing.T) {
 	if successCount != numRequests {
 		t.Errorf("expected %d successful requests, got %d", numRequests, successCount)
 	}
+}
+
+// mockRepositoryForTesting implements StatisticsRepository for integration testing
+// with proper test isolation - each instance starts fresh
+type mockRepositoryForTesting struct {
+	entries map[string]*data.StatisticsEntry
+}
+
+func newMockRepository() *mockRepositoryForTesting {
+	return &mockRepositoryForTesting{
+		entries: make(map[string]*data.StatisticsEntry),
+	}
+}
+
+func (m *mockRepositoryForTesting) Record(ctx context.Context, input data.FizzBuzzInput) (*data.StatisticsEntry, error) {
+	hash := input.GenerateStatsKey()
+
+	if entry, exists := m.entries[hash]; exists {
+		entry.Hits++
+		entry.UpdatedAt = time.Now()
+		return entry, nil
+	}
+
+	entry := &data.StatisticsEntry{
+		ParametersHash: hash,
+		Parameters:     input,
+		Hits:           1,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	m.entries[hash] = entry
+	return entry, nil
+}
+
+func (m *mockRepositoryForTesting) GetMostFrequent(ctx context.Context) (*data.StatisticsEntry, error) {
+	if len(m.entries) == 0 {
+		return nil, nil
+	}
+
+	var mostFrequent *data.StatisticsEntry
+	for _, entry := range m.entries {
+		if mostFrequent == nil || entry.Hits > mostFrequent.Hits {
+			mostFrequent = entry
+		}
+	}
+	return mostFrequent, nil
+}
+
+func (m *mockRepositoryForTesting) GetTopN(ctx context.Context, n int) ([]*data.StatisticsEntry, error) {
+	entries := make([]*data.StatisticsEntry, 0, len(m.entries))
+	for _, entry := range m.entries {
+		entries = append(entries, entry)
+	}
+
+	// Simple sort by hits (descending) for top N
+	for i := 0; i < len(entries)-1; i++ {
+		for j := i + 1; j < len(entries); j++ {
+			if entries[i].Hits < entries[j].Hits {
+				entries[i], entries[j] = entries[j], entries[i]
+			}
+		}
+	}
+
+	if n > len(entries) {
+		n = len(entries)
+	}
+	return entries[:n], nil
+}
+
+func (m *mockRepositoryForTesting) GetStats(ctx context.Context) (data.StatsSummary, error) {
+	total := int64(0)
+	maxHits := int64(0)
+	var firstTime, lastTime *time.Time
+
+	for _, entry := range m.entries {
+		total += int64(entry.Hits)
+		if int64(entry.Hits) > maxHits {
+			maxHits = int64(entry.Hits)
+		}
+		if firstTime == nil || entry.CreatedAt.Before(*firstTime) {
+			firstTime = &entry.CreatedAt
+		}
+		if lastTime == nil || entry.UpdatedAt.After(*lastTime) {
+			lastTime = &entry.UpdatedAt
+		}
+	}
+
+	avg := float64(0)
+	if len(m.entries) > 0 {
+		avg = float64(total) / float64(len(m.entries))
+	}
+
+	return data.StatsSummary{
+		TotalUniqueRequests:     int64(len(m.entries)),
+		TotalRequests:           total,
+		AvgHitsPerUniqueRequest: avg,
+		MaxHits:                 maxHits,
+		FirstRequestTime:        firstTime,
+		LastRequestTime:         lastTime,
+	}, nil
+}
+
+func (m *mockRepositoryForTesting) Close() error {
+	return nil
 }
