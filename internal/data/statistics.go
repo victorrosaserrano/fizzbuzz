@@ -4,15 +4,24 @@ package data
 
 import (
 	"sync"
+	"time"
 )
 
 // StatisticsEntry represents a tracked parameter combination with its hit frequency.
-// Each entry stores the original parameters and the number of times they've been requested.
+// Enhanced for database persistence with all necessary fields for data access and JSON marshaling.
 type StatisticsEntry struct {
+	// ID is the database primary key (not exposed in JSON responses)
+	ID int64 `db:"id" json:"-"`
+	// ParametersHash is the SHA256 hash of parameters for unique identification (not exposed)
+	ParametersHash string `db:"parameters_hash" json:"-"`
 	// Parameters contains the original FizzBuzz input parameters for this entry
 	Parameters FizzBuzzInput `json:"parameters"`
 	// Hits tracks the frequency count of requests for this parameter combination
-	Hits int `json:"hits"`
+	Hits int `db:"hits" json:"hits"`
+	// CreatedAt tracks when this parameter combination was first seen
+	CreatedAt time.Time `db:"created_at" json:"created_at,omitempty"`
+	// UpdatedAt tracks when this parameter combination was last requested
+	UpdatedAt time.Time `db:"updated_at" json:"updated_at,omitempty"`
 }
 
 // StatisticsTracker provides thread-safe tracking of FizzBuzz request parameters.
