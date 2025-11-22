@@ -577,14 +577,14 @@ func TestStatisticsHandler(t *testing.T) {
 		}
 
 		// Make third request (same as first, should increment hit count)
-		req1_copy, err := http.NewRequest(http.MethodPost, "/v1/fizzbuzz", strings.NewReader(jsonBody1))
+		req1Copy, err := http.NewRequest(http.MethodPost, "/v1/fizzbuzz", strings.NewReader(jsonBody1))
 		if err != nil {
 			t.Fatal(err)
 		}
-		req1_copy.Header.Set("Content-Type", "application/json")
+		req1Copy.Header.Set("Content-Type", "application/json")
 
 		rr = httptest.NewRecorder()
-		handler.ServeHTTP(rr, req1_copy)
+		handler.ServeHTTP(rr, req1Copy)
 
 		if rr.Code != http.StatusOK {
 			t.Errorf("third fizzbuzz request failed: expected status %d, got %d", http.StatusOK, rr.Code)

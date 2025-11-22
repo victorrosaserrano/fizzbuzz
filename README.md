@@ -32,27 +32,75 @@ fizzbuzz/
 
 ## Prerequisites
 
+**For Docker Setup (Recommended):**
+- Docker 20.10+
+- Docker Compose 2.0+
+
+**For Local Development:**
 - Go 1.24 or later
 - Make (for build automation)
+- PostgreSQL 15+ (if running locally without Docker)
 
-## Quick Start
+## Quick Start with Docker (Recommended)
 
-### 1. Clone and Setup
+### 🐳 One-Command Setup
 
 ```bash
+# Clone the repository
 git clone <repository-url>
 cd fizzbuzz
+
+# Start everything with Docker
+make start
 ```
 
-### 2. Build the Application
+This will:
+- ✅ Start PostgreSQL database with schema initialization
+- ✅ Build and run the FizzBuzz API
+- ✅ Set up networking between services
+- ✅ Create persistent data volumes
+
+**Services will be available at:**
+- 🚀 **API**: http://localhost:4000
+- 🔍 **Health Check**: http://localhost:4000/v1/healthcheck
+- 🗄️ **PostgreSQL**: localhost:5432 (fizzbuzz_user/fizzbuzz_pass)
+
+### 📊 Development Tools (Optional)
+
+```bash
+# Start with pgAdmin for database management
+make dev
+```
+
+Additional services:
+- 📈 **pgAdmin**: http://localhost:5050 (admin@fizzbuzz.local/admin123)
+
+### 🛠️ Useful Docker Commands
+
+```bash
+make docker/logs        # View all service logs
+make docker/health      # Check service status
+make docker/rebuild     # Rebuild and restart API
+make docker/db/shell    # Connect to PostgreSQL shell
+make stop               # Stop all services
+```
+
+## Alternative: Local Development Setup
+
+If you prefer to run without Docker:
+
+### 1. Setup Database
+
+```bash
+# Install and start PostgreSQL locally
+createdb fizzbuzz
+psql fizzbuzz < migrations/001_statistics_schema.sql
+```
+
+### 2. Build and Run
 
 ```bash
 make build
-```
-
-### 3. Run the Application
-
-```bash
 make run
 ```
 
@@ -125,9 +173,21 @@ Health check endpoint.
 
 ### Available Make Commands
 
+**🐳 Docker Commands:**
+```bash
+make start          # Quick start - build and run everything
+make stop           # Stop all services  
+make dev            # Start with development tools (pgAdmin)
+make docker/logs    # View service logs
+make docker/health  # Check service status
+make docker/rebuild # Rebuild and restart API
+make docker/reset   # Reset entire environment
+```
+
+**🔧 Development Commands:**
 ```bash
 make help           # Show all available commands
-make run            # Run the application
+make run            # Run the application locally
 make build          # Build the application
 make test           # Run tests
 make audit          # Run quality control checks
