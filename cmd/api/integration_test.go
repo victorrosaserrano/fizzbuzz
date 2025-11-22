@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"fizzbuzz/internal/data"
 )
 
 // newTestApplication creates a test application instance with a test logger
@@ -22,7 +24,8 @@ func newTestApplication(t *testing.T) *application {
 			port: 4000,
 			env:  "test",
 		},
-		logger: logger,
+		logger:     logger,
+		statistics: data.NewStatisticsTracker(),
 	}
 }
 

@@ -124,7 +124,7 @@ func (app *application) methodNotAllowedResponse(w http.ResponseWriter, r *http.
 	switch r.URL.Path {
 	case "/v1/fizzbuzz":
 		w.Header().Set("Allow", "POST")
-	case "/v1/healthcheck":
+	case "/v1/healthcheck", "/v1/statistics":
 		w.Header().Set("Allow", "GET")
 	default:
 		w.Header().Set("Allow", "GET, POST")
