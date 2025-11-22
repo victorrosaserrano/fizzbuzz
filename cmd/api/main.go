@@ -11,6 +11,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"fizzbuzz/internal/data"
 )
 
 var (
@@ -19,8 +21,9 @@ var (
 )
 
 type application struct {
-	config config
-	logger *slog.Logger
+	config     config
+	logger     *slog.Logger
+	statistics *data.StatisticsTracker
 }
 
 type config struct {
@@ -48,8 +51,9 @@ func main() {
 	}
 
 	app := &application{
-		config: cfg,
-		logger: logger,
+		config:     cfg,
+		logger:     logger,
+		statistics: data.NewStatisticsTracker(),
 	}
 
 	srv := &http.Server{
