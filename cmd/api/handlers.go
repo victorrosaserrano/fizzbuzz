@@ -35,6 +35,21 @@ func (app *application) fizzbuzzHandler(w http.ResponseWriter, r *http.Request) 
 	// Execute the FizzBuzz algorithm using existing implementation
 	result := data.FizzBuzz(input.Int1, input.Int2, input.Limit, input.Str1, input.Str2)
 
+	// Record statistics for successful request after algorithm execution
+	// Use defensive programming to ensure statistics failure doesn't affect response
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Log statistics recording failure but continue with response
+				app.logger.Error("statistics recording failed",
+					"error", r,
+					"method", "POST",
+					"uri", "/v1/fizzbuzz")
+			}
+		}()
+		app.statistics.Record(&input)
+	}()
+
 	// Create output struct with result
 	output := data.FizzBuzzOutput{
 		Result: result,
