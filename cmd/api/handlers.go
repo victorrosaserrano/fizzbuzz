@@ -62,6 +62,41 @@ func (app *application) fizzbuzzHandler(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// statisticsHandler handles GET requests to the /v1/statistics endpoint.
+// Returns the most frequently requested FizzBuzz parameters with hit count in JSON envelope format.
+func (app *application) statisticsHandler(w http.ResponseWriter, r *http.Request) {
+	// Only allow GET method
+	if r.Method != http.MethodGet {
+		app.methodNotAllowedResponse(w, r)
+		return
+	}
+
+	// Get most frequent statistics entry
+	mostFrequent := app.statistics.GetMostFrequent()
+
+	// Prepare response data structure
+	var responseData envelope
+	if mostFrequent == nil {
+		// Empty statistics case: no requests processed yet
+		responseData = envelope{
+			"most_frequent_request": nil,
+			"hits":                  0,
+		}
+	} else {
+		// Populated statistics case: return most frequent parameters and hits
+		responseData = envelope{
+			"most_frequent_request": mostFrequent.Parameters,
+			"hits":                  mostFrequent.Hits,
+		}
+	}
+
+	// Return success response using JSON envelope format
+	err := app.writeJSON(w, http.StatusOK, envelope{"data": responseData}, nil)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+	}
+}
+
 // validateFizzBuzzInput performs comprehensive validation on FizzBuzz input parameters
 // according to the business rules and constraints defined in the acceptance criteria.
 func validateFizzBuzzInput(input *data.FizzBuzzInput) *validator.Validator {
