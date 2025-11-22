@@ -1,0 +1,119 @@
+services:
+  # PostgreSQL Database for Statistics Persistence
+  postgres:
+    image: postgres:15-alpine
+    container_name: fizzbuzz-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-fizzbuzz}
+      POSTGRES_USER: ${DB_USER:-fizzbuzz_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-fizzbuzz_pass}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    volumes:
+      # Initialize database with schema
+      - ./migrations:/docker-entrypoint-initdb.d
+      # Persist data between restarts
+      - postgres_data:/var/lib/postgresql/data
+    # Note: Database port exposure removed for production security
+    # For development access, use: docker compose --profile dev-tools up
+    # or connect through the fizzbuzz-api container
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-fizzbuzz_user} -d ${DB_NAME:-fizzbuzz}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fizzbuzz-network
+    # Resource limits for production deployment
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.2'
+
+  # FizzBuzz API Application
+  fizzbuzz-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    container_name: fizzbuzz-api
+    environment:
+      # Database connection
+      DB_HOST: postgres
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-fizzbuzz}
+      DB_USER: ${DB_USER:-fizzbuzz_user}
+      DB_PASSWORD: ${DB_PASSWORD:-fizzbuzz_pass}
+      # SSL Mode: disable for dev, require for production
+      DB_SSL_MODE: ${DB_SSL_MODE:-disable}
+      
+      # API Configuration
+      API_PORT: ${API_PORT:-4000}
+      API_ENV: ${API_ENV:-development}
+      
+      # Performance tuning
+      DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-25}
+      DB_MAX_IDLE_CONNECTIONS: ${DB_MAX_IDLE_CONNECTIONS:-5}
+      DB_CONN_MAX_LIFETIME: ${DB_CONN_MAX_LIFETIME:-5m}
+      
+      # Rate limiting
+      RATE_LIMITER_ENABLED: ${RATE_LIMITER_ENABLED:-true}
+      RATE_LIMITER_RPS: ${RATE_LIMITER_RPS:-10}
+      RATE_LIMITER_BURST: ${RATE_LIMITER_BURST:-20}
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/v1/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - fizzbuzz-network
+    restart: unless-stopped
+    # Resource limits for production deployment
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
+
+  # Optional: Database Management Tool (for development/debugging)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: fizzbuzz-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@fizzbuzz.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-fizzbuzz_admin_2025}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - fizzbuzz-network
+    profiles:
+      - dev-tools
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  fizzbuzz-network:
+    driver: bridge
