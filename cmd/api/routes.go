@@ -69,7 +69,7 @@ func (app *application) healthcheckHandler(w http.ResponseWriter, r *http.Reques
 			ResponseTimeMs: time.Since(start).Milliseconds(),
 		}
 
-		// Extract connection pool metrics if available
+		// Extract basic connection pool metrics if available
 		if status, ok := dbHealth["status"].(string); ok && status == "healthy" {
 			if totalConns, ok := dbHealth["total_connections"].(int32); ok {
 				healthResponse.Database.MaxConns = totalConns
@@ -79,6 +79,22 @@ func (app *application) healthcheckHandler(w http.ResponseWriter, r *http.Reques
 			}
 			if acquiredConns, ok := dbHealth["acquired_connections"].(int32); ok {
 				healthResponse.Database.ActiveConns = acquiredConns
+			}
+		}
+
+		// Get detailed pool statistics (Story 5.6: Enhanced monitoring)
+		poolStats, poolErr := app.statistics.GetPoolStats(ctx)
+		if poolErr != nil {
+			app.logger.WarnWithContext(ctx, "failed to get pool statistics",
+				"error", poolErr)
+		} else {
+			healthResponse.Database.PoolStats = poolStats
+
+			// Update health status based on pool status
+			if poolStats.Status == "critical" {
+				healthResponse.Status = "degraded"
+			} else if poolStats.Status == "degraded" && healthResponse.Status == "available" {
+				healthResponse.Status = "degraded"
 			}
 		}
 	}

@@ -181,6 +181,17 @@ func (m *MockStatisticsRepository) GetStats(ctx context.Context) (data.StatsSumm
 	return data.StatsSummary{}, nil
 }
 
+func (m *MockStatisticsRepository) GetPoolStats(ctx context.Context) (*data.PoolStats, error) {
+	return &data.PoolStats{
+		TotalConnections:  5,
+		IdleConnections:   3,
+		ActiveConnections: 2,
+		MaxConnections:    25,
+		Status:            "healthy",
+		CollectedAt:       time.Now(),
+	}, nil
+}
+
 func (m *MockStatisticsRepository) Close() error {
 	if m.closeFunc != nil {
 		return m.closeFunc()

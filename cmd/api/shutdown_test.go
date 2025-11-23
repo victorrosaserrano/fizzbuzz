@@ -287,6 +287,17 @@ func (m *testStatisticsHandler) GetMostFrequentLegacy(logger *jsonlog.Logger) *d
 	return nil
 }
 
+func (m *testStatisticsHandler) GetPoolStats(ctx context.Context) (*data.PoolStats, error) {
+	return &data.PoolStats{
+		TotalConnections:  5,
+		IdleConnections:   3,
+		ActiveConnections: 2,
+		MaxConnections:    25,
+		Status:            "healthy",
+		CollectedAt:       time.Now(),
+	}, nil
+}
+
 func (m *testStatisticsHandler) Close() error {
 	return nil
 }

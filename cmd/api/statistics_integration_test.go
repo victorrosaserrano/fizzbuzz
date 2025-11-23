@@ -263,6 +263,17 @@ func (m *mockRepositoryForIntegrationTesting) GetStats(ctx context.Context) (dat
 	return data.StatsSummary{}, nil
 }
 
+func (m *mockRepositoryForIntegrationTesting) GetPoolStats(ctx context.Context) (*data.PoolStats, error) {
+	return &data.PoolStats{
+		TotalConnections:  5,
+		IdleConnections:   3,
+		ActiveConnections: 2,
+		MaxConnections:    25,
+		Status:            "healthy",
+		CollectedAt:       time.Now(),
+	}, nil
+}
+
 func (m *mockRepositoryForIntegrationTesting) Close() error {
 	return nil
 }

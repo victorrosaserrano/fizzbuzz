@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // FizzBuzzInput represents the input parameters for a FizzBuzz request.
@@ -79,9 +80,19 @@ type SystemInfo struct {
 
 // DatabaseHealthInfo provides database connectivity and connection pool status.
 type DatabaseHealthInfo struct {
-	Status         string `json:"status"`
-	ResponseTimeMs int64  `json:"response_time_ms"`
-	ActiveConns    int32  `json:"active_connections"`
-	IdleConns      int32  `json:"idle_connections"`
-	MaxConns       int32  `json:"max_connections"`
+	Status         string              `json:"status"`
+	ResponseTimeMs int64               `json:"response_time_ms"`
+	ActiveConns    int32               `json:"active_connections"`
+	IdleConns      int32               `json:"idle_connections"`
+	MaxConns       int32               `json:"max_connections"`
+	PoolStats      *PoolStats          `json:"pool_stats,omitempty"`
+	CircuitBreaker *CircuitBreakerInfo `json:"circuit_breaker,omitempty"`
+}
+
+// CircuitBreakerInfo provides circuit breaker status information
+type CircuitBreakerInfo struct {
+	State        string     `json:"state"`
+	Failures     int        `json:"failures"`
+	Successes    int        `json:"successes"`
+	LastFailTime *time.Time `json:"last_fail_time,omitempty"`
 }

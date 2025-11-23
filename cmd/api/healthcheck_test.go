@@ -49,6 +49,17 @@ func (m *mockStatisticsHandler) GetMostFrequent(ctx context.Context) (*data.Stat
 	return nil, nil
 }
 
+func (m *mockStatisticsHandler) GetPoolStats(ctx context.Context) (*data.PoolStats, error) {
+	return &data.PoolStats{
+		TotalConnections:  10,
+		IdleConnections:   3,
+		ActiveConnections: 2,
+		MaxConnections:    25,
+		Status:            "healthy",
+		CollectedAt:       time.Now(),
+	}, nil
+}
+
 func (m *mockStatisticsHandler) RecordLegacy(input *data.FizzBuzzInput, logger *jsonlog.Logger) {
 }
 

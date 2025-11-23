@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"fizzbuzz/internal/jsonlog"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -34,6 +35,10 @@ type StatisticsRepository interface {
 	// Close releases database connections and cleanup resources.
 	// Should be called during application shutdown for graceful cleanup.
 	Close() error
+
+	// GetPoolStats returns detailed connection pool statistics for monitoring.
+	// Provides real-time metrics for operational monitoring and alerting.
+	GetPoolStats(ctx context.Context) (*PoolStats, error)
 }
 
 // StatsSummary provides aggregate statistics for monitoring and analytics.
@@ -53,6 +58,29 @@ type StatsSummary struct {
 	LastRequestTime *time.Time `json:"last_request_time,omitempty"`
 }
 
+// PoolStats provides comprehensive connection pool statistics for monitoring.
+// Used by health checks and operational dashboards for database monitoring.
+type PoolStats struct {
+	// TotalConnections is the current total number of connections in the pool
+	TotalConnections int32 `json:"total_connections"`
+	// IdleConnections is the number of idle connections available for use
+	IdleConnections int32 `json:"idle_connections"`
+	// ActiveConnections is the number of connections currently in use
+	ActiveConnections int32 `json:"active_connections"`
+	// ConstructingConnections is the number of connections being established
+	ConstructingConnections int32 `json:"constructing_connections"`
+	// MaxConnections is the maximum allowed connections in the pool
+	MaxConnections int32 `json:"max_connections"`
+	// AcquireCount is the total number of connection acquisitions
+	AcquireCount int64 `json:"acquire_count"`
+	// AverageAcquireDurationMs is the average time to acquire a connection in milliseconds
+	AverageAcquireDurationMs float64 `json:"average_acquire_duration_ms"`
+	// Status indicates the overall pool health (healthy, degraded, unavailable)
+	Status string `json:"status"`
+	// CollectedAt timestamp when these metrics were collected
+	CollectedAt time.Time `json:"collected_at"`
+}
+
 // PostgreSQLStatisticsRepository implements StatisticsRepository using PostgreSQL.
 // Uses pgx driver with connection pooling for optimal performance and resource management.
 type PostgreSQLStatisticsRepository struct {
@@ -60,11 +88,13 @@ type PostgreSQLStatisticsRepository struct {
 	pool *pgxpool.Pool
 	// timeout configures default operation timeout for database queries
 	timeout time.Duration
+	// logger provides structured logging for database operations
+	logger *jsonlog.Logger
 }
 
 // NewPostgreSQLStatisticsRepository creates a new PostgreSQL repository instance.
 // Requires an active pgxpool connection pool and optional timeout configuration.
-func NewPostgreSQLStatisticsRepository(pool *pgxpool.Pool, timeout time.Duration) *PostgreSQLStatisticsRepository {
+func NewPostgreSQLStatisticsRepository(pool *pgxpool.Pool, timeout time.Duration, logger *jsonlog.Logger) *PostgreSQLStatisticsRepository {
 	if timeout <= 0 {
 		timeout = 5 * time.Second // Default 5s timeout for operations
 	}
@@ -72,12 +102,15 @@ func NewPostgreSQLStatisticsRepository(pool *pgxpool.Pool, timeout time.Duration
 	return &PostgreSQLStatisticsRepository{
 		pool:    pool,
 		timeout: timeout,
+		logger:  logger,
 	}
 }
 
 // Record implements StatisticsRepository.Record using atomic upsert operations.
 // Uses the increment_statistics database function for thread-safe hit counting.
 func (r *PostgreSQLStatisticsRepository) Record(ctx context.Context, input FizzBuzzInput) (*StatisticsEntry, error) {
+	start := time.Now()
+
 	// Create context with timeout for operation
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -85,11 +118,43 @@ func (r *PostgreSQLStatisticsRepository) Record(ctx context.Context, input FizzB
 	// Generate parameter hash for unique identification
 	hash := input.GenerateStatsKey()
 
+	// Log operation start
+	if r.logger != nil {
+		r.logger.DebugWithContext(ctx, "starting database record operation",
+			"operation", "Record",
+			"hash", hash[:12]+"...", // Only log first 12 chars of hash for brevity
+			"timeout", r.timeout)
+	}
+
 	// Execute atomic upsert using database function
 	var currentHits int64
 	err := r.pool.QueryRow(ctx, `
 		SELECT increment_statistics($1, $2, $3, $4, $5, $6)
 	`, hash, input.Int1, input.Int2, input.Limit, input.Str1, input.Str2).Scan(&currentHits)
+
+	duration := time.Since(start)
+
+	// Log connection pool stats after operation
+	if r.logger != nil {
+		stat := r.pool.Stat()
+		if err != nil {
+			r.logger.WarnWithContext(ctx, "database record operation failed",
+				"operation", "Record",
+				"error", err,
+				"duration_ms", duration.Milliseconds(),
+				"pool_total_conns", stat.TotalConns(),
+				"pool_idle_conns", stat.IdleConns(),
+				"pool_active_conns", stat.AcquiredConns())
+		} else {
+			r.logger.DebugWithContext(ctx, "database record operation completed",
+				"operation", "Record",
+				"hits", currentHits,
+				"duration_ms", duration.Milliseconds(),
+				"pool_total_conns", stat.TotalConns(),
+				"pool_idle_conns", stat.IdleConns(),
+				"pool_active_conns", stat.AcquiredConns())
+		}
+	}
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to record statistics: %w", err)
@@ -256,6 +321,69 @@ func (r *PostgreSQLStatisticsRepository) Health(ctx context.Context) (map[string
 		"acquire_duration_ns":      stat.AcquireDuration().Nanoseconds(),
 		"response_time_ms":         "< 2000", // Based on timeout
 	}, nil
+}
+
+// GetPoolStats implements StatisticsRepository.GetPoolStats.
+// Returns comprehensive connection pool statistics for monitoring and alerting.
+func (r *PostgreSQLStatisticsRepository) GetPoolStats(ctx context.Context) (*PoolStats, error) {
+	// Create context with timeout for pool stats collection
+	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+
+	// Get connection pool statistics from pgx
+	stat := r.pool.Stat()
+
+	// Calculate average acquire duration in milliseconds
+	avgAcquireDurationMs := float64(stat.AcquireDuration().Nanoseconds()) / 1000000.0
+
+	// Determine pool status based on usage patterns and thresholds
+	status := r.calculatePoolStatus(stat)
+
+	poolStats := &PoolStats{
+		TotalConnections:         stat.TotalConns(),
+		IdleConnections:          stat.IdleConns(),
+		ActiveConnections:        stat.AcquiredConns(),
+		ConstructingConnections:  stat.ConstructingConns(),
+		MaxConnections:           stat.MaxConns(),
+		AcquireCount:             stat.AcquireCount(),
+		AverageAcquireDurationMs: avgAcquireDurationMs,
+		Status:                   status,
+		CollectedAt:              time.Now(),
+	}
+
+	return poolStats, nil
+}
+
+// calculatePoolStatus determines pool health status based on usage patterns.
+// Returns "healthy", "degraded", or "critical" based on thresholds.
+func (r *PostgreSQLStatisticsRepository) calculatePoolStatus(stat *pgxpool.Stat) string {
+	maxConns := float64(stat.MaxConns())
+	totalConns := float64(stat.TotalConns())
+	idleConns := float64(stat.IdleConns())
+
+	// Calculate usage percentage
+	usagePercentage := totalConns / maxConns
+
+	// Calculate idle percentage of total connections
+	idlePercentage := idleConns / totalConns
+
+	// Check for critical conditions
+	if usagePercentage >= 0.95 { // 95% or more of max connections in use
+		return "critical"
+	}
+
+	// Check for degraded conditions
+	if usagePercentage >= 0.80 || idlePercentage < 0.1 { // 80% usage or less than 10% idle
+		return "degraded"
+	}
+
+	// Check average acquire duration (if too high, might indicate contention)
+	avgAcquireMs := float64(stat.AcquireDuration().Nanoseconds()) / 1000000.0
+	if avgAcquireMs > 100 { // More than 100ms average acquire time
+		return "degraded"
+	}
+
+	return "healthy"
 }
 
 // scanStatisticsEntry is a helper method to scan database rows into StatisticsEntry structs.
