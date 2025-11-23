@@ -181,25 +181,31 @@ func isDatabaseTestingEnabled() bool {
 func getTestConfig() config {
 	return config{
 		db: struct {
-			host         string
-			port         int
-			name         string
-			user         string
-			password     string
-			sslMode      string
-			maxConns     int
-			maxIdleConns int
-			maxLifetime  time.Duration
+			host              string
+			port              int
+			name              string
+			user              string
+			password          string
+			sslMode           string
+			maxConns          int
+			maxIdleConns      int
+			maxLifetime       time.Duration
+			operationTimeout  time.Duration
+			healthCheckPeriod time.Duration
+			monitoringEnabled bool
 		}{
-			host:         getEnvString("DB_HOST", "localhost"),
-			port:         getEnvInt("DB_PORT", 5432),
-			name:         getEnvString("DB_NAME", "fizzbuzz_test"),
-			user:         getEnvString("DB_USER", "fizzbuzz_user"),
-			password:     getEnvString("DB_PASSWORD", "fizzbuzz_pass"),
-			sslMode:      getEnvString("DB_SSL_MODE", "disable"),
-			maxConns:     getEnvInt("DB_MAX_CONNECTIONS", 10),
-			maxIdleConns: 5,
-			maxLifetime:  5 * time.Minute,
+			host:              getEnvString("DB_HOST", "localhost"),
+			port:              getEnvInt("DB_PORT", 5432),
+			name:              getEnvString("DB_NAME", "fizzbuzz_test"),
+			user:              getEnvString("DB_USER", "fizzbuzz_user"),
+			password:          getEnvString("DB_PASSWORD", "fizzbuzz_pass"),
+			sslMode:           getEnvString("DB_SSL_MODE", "disable"),
+			maxConns:          getEnvInt("DB_MAX_CONNECTIONS", 10),
+			maxIdleConns:      5,
+			maxLifetime:       5 * time.Minute,
+			operationTimeout:  3 * time.Second,
+			healthCheckPeriod: 1 * time.Minute,
+			monitoringEnabled: true,
 		},
 	}
 }

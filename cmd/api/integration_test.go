@@ -650,6 +650,17 @@ func (m *mockRepositoryForTesting) GetStats(ctx context.Context) (data.StatsSumm
 	}, nil
 }
 
+func (m *mockRepositoryForTesting) GetPoolStats(ctx context.Context) (*data.PoolStats, error) {
+	return &data.PoolStats{
+		TotalConnections:  5,
+		IdleConnections:   3,
+		ActiveConnections: 2,
+		MaxConnections:    25,
+		Status:            "healthy",
+		CollectedAt:       time.Now(),
+	}, nil
+}
+
 func (m *mockRepositoryForTesting) Close() error {
 	return nil
 }

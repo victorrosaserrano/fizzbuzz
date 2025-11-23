@@ -194,6 +194,17 @@ func (m *mockRepository) GetStats(ctx context.Context) (data.StatsSummary, error
 	return data.StatsSummary{}, nil
 }
 
+func (m *mockRepository) GetPoolStats(ctx context.Context) (*data.PoolStats, error) {
+	return &data.PoolStats{
+		TotalConnections:  5,
+		IdleConnections:   3,
+		ActiveConnections: 2,
+		MaxConnections:    25,
+		Status:            "healthy",
+		CollectedAt:       time.Now(),
+	}, nil
+}
+
 func (m *mockRepository) Close() error {
 	return nil
 }
@@ -225,6 +236,15 @@ func (s *slowMockRepository) GetTopN(ctx context.Context, n int) ([]*data.Statis
 
 func (s *slowMockRepository) GetStats(ctx context.Context) (data.StatsSummary, error) {
 	return data.StatsSummary{}, nil
+}
+
+func (s *slowMockRepository) GetPoolStats(ctx context.Context) (*data.PoolStats, error) {
+	select {
+	case <-time.After(1 * time.Second): // Simulate slow operation
+		return &data.PoolStats{Status: "healthy"}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (s *slowMockRepository) Close() error {

@@ -13,13 +13,14 @@ import (
 // MockStatisticsRepository implements StatisticsRepository for unit testing.
 // Provides controllable mock implementation without external database dependencies.
 type MockStatisticsRepository struct {
-	mu           sync.RWMutex
-	entries      map[string]*StatisticsEntry
-	recordFunc   func(ctx context.Context, input FizzBuzzInput) (*StatisticsEntry, error)
-	getMostFunc  func(ctx context.Context) (*StatisticsEntry, error)
-	getTopNFunc  func(ctx context.Context, n int) ([]*StatisticsEntry, error)
-	getStatsFunc func(ctx context.Context) (StatsSummary, error)
-	closeFunc    func() error
+	mu               sync.RWMutex
+	entries          map[string]*StatisticsEntry
+	recordFunc       func(ctx context.Context, input FizzBuzzInput) (*StatisticsEntry, error)
+	getMostFunc      func(ctx context.Context) (*StatisticsEntry, error)
+	getTopNFunc      func(ctx context.Context, n int) ([]*StatisticsEntry, error)
+	getStatsFunc     func(ctx context.Context) (StatsSummary, error)
+	getPoolStatsFunc func(ctx context.Context) (*PoolStats, error)
+	closeFunc        func() error
 }
 
 // NewMockStatisticsRepository creates a new mock repository for testing.
@@ -132,6 +133,26 @@ func (m *MockStatisticsRepository) GetStats(ctx context.Context) (StatsSummary, 
 	}
 
 	return summary, nil
+}
+
+// GetPoolStats implements StatisticsRepository.GetPoolStats for mock testing.
+func (m *MockStatisticsRepository) GetPoolStats(ctx context.Context) (*PoolStats, error) {
+	if m.getPoolStatsFunc != nil {
+		return m.getPoolStatsFunc(ctx)
+	}
+
+	// Return mock pool stats with healthy status
+	return &PoolStats{
+		TotalConnections:         10,
+		IdleConnections:          7,
+		ActiveConnections:        3,
+		ConstructingConnections:  0,
+		MaxConnections:           20,
+		AcquireCount:             1000,
+		AverageAcquireDurationMs: 5.2,
+		Status:                   "healthy",
+		CollectedAt:              time.Now(),
+	}, nil
 }
 
 // Close implements StatisticsRepository.Close for mock testing.

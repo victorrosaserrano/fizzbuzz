@@ -27,6 +27,7 @@ type StatisticsHandlerInterface interface {
 	Record(ctx context.Context, input *data.FizzBuzzInput) error
 	GetMostFrequent(ctx context.Context) (*data.StatisticsEntry, error)
 	GetDatabaseHealth(ctx context.Context) (map[string]interface{}, error)
+	GetPoolStats(ctx context.Context) (*data.PoolStats, error)
 	RecordLegacy(input *data.FizzBuzzInput, logger *jsonlog.Logger)
 	GetMostFrequentLegacy(logger *jsonlog.Logger) *data.StatisticsEntry
 	Close() error
@@ -110,6 +111,15 @@ func (sh *statisticsHandler) GetDatabaseHealth(ctx context.Context) (map[string]
 	return sh.service.GetDatabaseHealth(ctx)
 }
 
+// GetPoolStats returns detailed connection pool statistics
+func (sh *statisticsHandler) GetPoolStats(ctx context.Context) (*data.PoolStats, error) {
+	if sh.service == nil {
+		return nil, errors.New("statistics service not initialized")
+	}
+
+	return sh.service.GetPoolStats(ctx)
+}
+
 // Close closes the database connections
 func (sh *statisticsHandler) Close() error {
 	if sh.service == nil {
@@ -133,6 +143,10 @@ type config struct {
 		maxConns     int
 		maxIdleConns int
 		maxLifetime  time.Duration
+		// Story 5.6: Database monitoring and timeout configuration
+		operationTimeout  time.Duration
+		healthCheckPeriod time.Duration
+		monitoringEnabled bool
 	}
 
 	limiter struct {
@@ -209,10 +223,10 @@ func initializePostgreSQLStatistics(cfg config, logger *jsonlog.Logger) (Statist
 
 	// Connection pooling configuration for optimal performance
 	poolConfig.MaxConns = int32(cfg.db.maxConns)
-	poolConfig.MinConns = 2                         // Maintain minimum connections for immediate availability
-	poolConfig.MaxConnLifetime = cfg.db.maxLifetime // Connection refresh for long-running applications
-	poolConfig.MaxConnIdleTime = 10 * time.Minute   // Close idle connections to free resources
-	poolConfig.HealthCheckPeriod = 1 * time.Minute  // Regular health checks for connection validity
+	poolConfig.MinConns = 2                                 // Maintain minimum connections for immediate availability
+	poolConfig.MaxConnLifetime = cfg.db.maxLifetime         // Connection refresh for long-running applications
+	poolConfig.MaxConnIdleTime = 10 * time.Minute           // Close idle connections to free resources
+	poolConfig.HealthCheckPeriod = cfg.db.healthCheckPeriod // Configurable health checks for connection validity
 
 	// Context with timeout for initial connection setup
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -231,20 +245,24 @@ func initializePostgreSQLStatistics(cfg config, logger *jsonlog.Logger) (Statist
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	// Initialize repository with optimized timeout for FizzBuzz operations
-	operationTimeout := 3 * time.Second // Fast response times for API endpoints
-	repository := data.NewPostgreSQLStatisticsRepository(pool, operationTimeout)
+	// Initialize repository with configurable timeout for FizzBuzz operations
+	repository := data.NewPostgreSQLStatisticsRepository(pool, cfg.db.operationTimeout, logger)
 
-	// Create statistics service with repository
-	service := data.NewStatisticsService(repository)
+	// Create circuit breaker repository for database resilience
+	cbRepository := data.NewCircuitBreakerRepository(repository, logger)
 
-	logger.Info("PostgreSQL statistics initialized successfully",
+	// Create statistics service with circuit breaker protection
+	service := data.NewStatisticsService(cbRepository)
+
+	logger.Info("PostgreSQL statistics with circuit breaker initialized successfully",
 		"db_host", cfg.db.host,
 		"db_port", cfg.db.port,
 		"db_name", cfg.db.name,
 		"max_connections", cfg.db.maxConns,
-		"operation_timeout", operationTimeout,
-		"pool_health_check_period", poolConfig.HealthCheckPeriod)
+		"operation_timeout", cfg.db.operationTimeout,
+		"pool_health_check_period", cfg.db.healthCheckPeriod,
+		"monitoring_enabled", cfg.db.monitoringEnabled,
+		"circuit_breaker_enabled", true)
 
 	return &statisticsHandler{
 		service: service,
@@ -318,6 +336,11 @@ func main() {
 	// Shutdown configuration flags
 	flag.DurationVar(&cfg.shutdown.timeout, "shutdown-timeout", 30*time.Second, "Maximum time to wait for graceful shutdown")
 
+	// Database monitoring configuration flags (Story 5.6)
+	flag.DurationVar(&cfg.db.operationTimeout, "db-operation-timeout", 3*time.Second, "Database operation timeout")
+	flag.DurationVar(&cfg.db.healthCheckPeriod, "db-health-check-period", 1*time.Minute, "Database health check period")
+	flag.BoolVar(&cfg.db.monitoringEnabled, "db-monitoring-enabled", true, "Enable database monitoring")
+
 	flag.Parse()
 
 	// Environment variable configuration with fallbacks
@@ -336,6 +359,10 @@ func main() {
 	cfg.db.maxConns = getEnvInt("DB_MAX_CONNECTIONS", 25)
 	cfg.db.maxIdleConns = getEnvInt("DB_MAX_IDLE_CONNECTIONS", 5)
 	cfg.db.maxLifetime = getEnvDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute)
+	// Story 5.6: Database monitoring configuration
+	cfg.db.operationTimeout = getEnvDuration("DB_OPERATION_TIMEOUT", cfg.db.operationTimeout)
+	cfg.db.healthCheckPeriod = getEnvDuration("DB_HEALTH_CHECK_PERIOD", cfg.db.healthCheckPeriod)
+	cfg.db.monitoringEnabled = getEnvBool("DB_MONITORING_ENABLED", cfg.db.monitoringEnabled)
 
 	// Rate Limiter Configuration (use flag values as defaults)
 	cfg.limiter.enabled = getEnvBool("RATE_LIMITER_ENABLED", cfg.limiter.enabled)

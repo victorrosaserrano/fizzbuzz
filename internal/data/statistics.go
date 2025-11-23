@@ -266,3 +266,18 @@ func (ss *StatisticsService) GetDatabaseHealth(ctx context.Context) (map[string]
 		"message": "basic database connectivity verified",
 	}, nil
 }
+
+// GetPoolStats returns comprehensive connection pool statistics for monitoring.
+// Story 5.6: Database connection monitoring and pool management
+func (ss *StatisticsService) GetPoolStats(ctx context.Context) (*PoolStats, error) {
+	if ss.repository == nil {
+		return nil, fmt.Errorf("repository not initialized")
+	}
+
+	poolStats, err := ss.repository.GetPoolStats(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("statistics service get pool stats failed: %w", err)
+	}
+
+	return poolStats, nil
+}
