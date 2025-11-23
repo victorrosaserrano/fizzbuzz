@@ -140,6 +140,10 @@ type config struct {
 		rps     float64
 		burst   int
 	}
+
+	shutdown struct {
+		timeout time.Duration
+	}
 }
 
 // getEnvString returns environment variable value or default if not set
@@ -255,6 +259,8 @@ func initializeRateLimiter(cfg config, logger *jsonlog.Logger) *rateLimiterMap {
 	// Start background cleanup goroutine if rate limiting is enabled
 	if cfg.limiter.enabled {
 		go func() {
+			defer close(rlm.done) // Signal completion when goroutine exits
+
 			cleanupInterval := 1 * time.Minute // Run cleanup every minute
 			maxAge := 1 * time.Hour            // Remove entries older than 1 hour
 			ticker := time.NewTicker(cleanupInterval)
@@ -277,9 +283,15 @@ func initializeRateLimiter(cfg config, logger *jsonlog.Logger) *rateLimiterMap {
 							"rps_limit", rps,
 							"burst_limit", burst)
 					}
+				case <-rlm.shutdownCh:
+					logger.Info("rate limiter cleanup goroutine shutdown initiated")
+					return
 				}
 			}
 		}()
+	} else {
+		// If rate limiting is disabled, immediately close done channel
+		close(rlm.done)
 	}
 
 	logger.Info("rate limiter initialized",
@@ -302,6 +314,9 @@ func main() {
 	flag.BoolVar(&cfg.limiter.enabled, "limiter-enabled", true, "Enable rate limiting")
 	flag.Float64Var(&cfg.limiter.rps, "limiter-rps", 2.0, "Rate limiter requests per second")
 	flag.IntVar(&cfg.limiter.burst, "limiter-burst", 4, "Rate limiter maximum burst size")
+
+	// Shutdown configuration flags
+	flag.DurationVar(&cfg.shutdown.timeout, "shutdown-timeout", 30*time.Second, "Maximum time to wait for graceful shutdown")
 
 	flag.Parse()
 
@@ -326,6 +341,9 @@ func main() {
 	cfg.limiter.enabled = getEnvBool("RATE_LIMITER_ENABLED", cfg.limiter.enabled)
 	cfg.limiter.rps = getEnvFloat("RATE_LIMITER_RPS", cfg.limiter.rps)
 	cfg.limiter.burst = getEnvInt("RATE_LIMITER_BURST", cfg.limiter.burst)
+
+	// Shutdown Configuration
+	cfg.shutdown.timeout = getEnvDuration("SHUTDOWN_TIMEOUT", cfg.shutdown.timeout)
 
 	// Parse log level
 	var level jsonlog.Level
@@ -378,35 +396,70 @@ func main() {
 	go func() {
 		quit := make(chan os.Signal, 1)
 		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+		// Listen for first signal
 		s := <-quit
+		shutdownStart := time.Now()
 
-		logger.Info("shutdown initiated",
+		logger.Info("graceful shutdown initiated",
 			"signal", s,
-			"timeout", "5s",
-			"addr", srv.Addr)
+			"timeout", cfg.shutdown.timeout,
+			"addr", srv.Addr,
+			"process_id", os.Getpid())
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Set up goroutine for forced shutdown on second signal
+		go func() {
+			s := <-quit
+			logger.Warn("forced shutdown initiated - second signal received",
+				"signal", s,
+				"forced_shutdown", true)
+			os.Exit(1)
+		}()
+
+		// Create shutdown context with configurable timeout
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.shutdown.timeout)
 		defer cancel()
 
+		// Step 1: Stop accepting new connections and complete in-flight requests
+		logger.Info("shutting down HTTP server")
 		err := srv.Shutdown(ctx)
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				logger.Error("HTTP server shutdown timed out",
+					"timeout", cfg.shutdown.timeout,
+					"elapsed", time.Since(shutdownStart))
+			} else {
+				logger.Error("HTTP server shutdown failed", "error", err)
+			}
 			shutdownError <- err
+			return
+		}
+		logger.Info("HTTP server shutdown completed",
+			"elapsed", time.Since(shutdownStart))
+
+		// Step 2: Signal rate limiter cleanup goroutine to terminate
+		if app.rateLimiter != nil {
+			logger.Info("shutting down rate limiter cleanup goroutine")
+			app.rateLimiter.shutdown()
+			app.rateLimiter.waitForShutdown()
+			logger.Info("rate limiter cleanup goroutine terminated")
 		}
 
-		// Story 4.6: Cleanup PostgreSQL connections on shutdown
+		// Step 3: Close database connections
 		if app.statistics != nil {
 			logger.Info("closing database connections")
-
 			err := app.statistics.Close()
 			if err != nil {
 				logger.Error("failed to close database connections", "error", err)
-			} else {
-				logger.Info("database connections closed successfully")
+				shutdownError <- err
+				return
 			}
+			logger.Info("database connections closed successfully")
 		}
 
-		logger.Info("background tasks completed",
-			"shutdown_timeout", "5s")
+		logger.Info("graceful shutdown completed successfully",
+			"total_elapsed", time.Since(shutdownStart),
+			"timeout", cfg.shutdown.timeout)
 
 		shutdownError <- nil
 	}()
@@ -421,7 +474,8 @@ func main() {
 		"db_name", cfg.db.name,
 		"db_ssl_mode", cfg.db.sslMode,
 		"rate_limiter_enabled", cfg.limiter.enabled,
-		"rate_limiter_rps", cfg.limiter.rps)
+		"rate_limiter_rps", cfg.limiter.rps,
+		"shutdown_timeout", cfg.shutdown.timeout)
 
 	listenErr := srv.ListenAndServe()
 	if listenErr != nil && !errors.Is(listenErr, http.ErrServerClosed) {
