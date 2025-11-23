@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -542,6 +543,7 @@ func TestConcurrentRequests(t *testing.T) {
 // mockRepositoryForTesting implements StatisticsRepository for integration testing
 // with proper test isolation - each instance starts fresh
 type mockRepositoryForTesting struct {
+	mu      sync.RWMutex
 	entries map[string]*data.StatisticsEntry
 }
 
@@ -553,6 +555,9 @@ func newMockRepository() *mockRepositoryForTesting {
 
 func (m *mockRepositoryForTesting) Record(ctx context.Context, input data.FizzBuzzInput) (*data.StatisticsEntry, error) {
 	hash := input.GenerateStatsKey()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if entry, exists := m.entries[hash]; exists {
 		entry.Hits++
@@ -572,6 +577,9 @@ func (m *mockRepositoryForTesting) Record(ctx context.Context, input data.FizzBu
 }
 
 func (m *mockRepositoryForTesting) GetMostFrequent(ctx context.Context) (*data.StatisticsEntry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	if len(m.entries) == 0 {
 		return nil, nil
 	}
@@ -586,6 +594,9 @@ func (m *mockRepositoryForTesting) GetMostFrequent(ctx context.Context) (*data.S
 }
 
 func (m *mockRepositoryForTesting) GetTopN(ctx context.Context, n int) ([]*data.StatisticsEntry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	entries := make([]*data.StatisticsEntry, 0, len(m.entries))
 	for _, entry := range m.entries {
 		entries = append(entries, entry)

@@ -21,18 +21,22 @@ type ipLimiter struct {
 
 // rateLimiterMap holds per-IP rate limiters with thread-safe access
 type rateLimiterMap struct {
-	mu       sync.RWMutex
-	limiters map[string]*ipLimiter
-	rps      rate.Limit
-	burst    int
+	mu         sync.RWMutex
+	limiters   map[string]*ipLimiter
+	rps        rate.Limit
+	burst      int
+	shutdownCh chan struct{} // Channel to signal shutdown to cleanup goroutine
+	done       chan struct{} // Channel to signal cleanup goroutine has terminated
 }
 
 // newRateLimiterMap creates a new rate limiter map with the specified rate and burst
 func newRateLimiterMap(rps float64, burst int) *rateLimiterMap {
 	return &rateLimiterMap{
-		limiters: make(map[string]*ipLimiter),
-		rps:      rate.Limit(rps),
-		burst:    burst,
+		limiters:   make(map[string]*ipLimiter),
+		rps:        rate.Limit(rps),
+		burst:      burst,
+		shutdownCh: make(chan struct{}),
+		done:       make(chan struct{}),
 	}
 }
 
@@ -79,6 +83,16 @@ func (rlm *rateLimiterMap) getStats() (totalEntries int, rps float64, burst int)
 	defer rlm.mu.RUnlock()
 
 	return len(rlm.limiters), float64(rlm.rps), rlm.burst
+}
+
+// shutdown signals the cleanup goroutine to terminate gracefully
+func (rlm *rateLimiterMap) shutdown() {
+	close(rlm.shutdownCh)
+}
+
+// waitForShutdown waits for the cleanup goroutine to terminate
+func (rlm *rateLimiterMap) waitForShutdown() {
+	<-rlm.done
 }
 
 // getClientIP extracts the real client IP from the request
