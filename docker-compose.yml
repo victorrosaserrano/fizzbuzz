@@ -63,8 +63,8 @@ services:
       
       # Rate limiting
       RATE_LIMITER_ENABLED: ${RATE_LIMITER_ENABLED:-true}
-      RATE_LIMITER_RPS: ${RATE_LIMITER_RPS:-10}
-      RATE_LIMITER_BURST: ${RATE_LIMITER_BURST:-20}
+      RATE_LIMITER_RPS: ${RATE_LIMITER_RPS:-2.0}
+      RATE_LIMITER_BURST: ${RATE_LIMITER_BURST:-4}
     ports:
       - "4000:4000"
     depends_on:

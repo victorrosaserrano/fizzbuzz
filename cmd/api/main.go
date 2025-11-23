@@ -23,9 +23,10 @@ var (
 )
 
 type application struct {
-	config     config
-	logger     *jsonlog.Logger
-	statistics statisticsHandler
+	config      config
+	logger      *jsonlog.Logger
+	statistics  statisticsHandler
+	rateLimiter *rateLimiterMap
 }
 
 // statisticsHandler provides interface for statistics operations
@@ -215,6 +216,49 @@ func initializePostgreSQLStatistics(cfg config, logger *jsonlog.Logger) (statist
 	}, nil
 }
 
+// initializeRateLimiter creates a new rate limiter with cleanup goroutine
+func initializeRateLimiter(cfg config, logger *jsonlog.Logger) *rateLimiterMap {
+	// Create rate limiter map
+	rlm := newRateLimiterMap(cfg.limiter.rps, cfg.limiter.burst)
+
+	// Start background cleanup goroutine if rate limiting is enabled
+	if cfg.limiter.enabled {
+		go func() {
+			cleanupInterval := 1 * time.Minute // Run cleanup every minute
+			maxAge := 1 * time.Hour            // Remove entries older than 1 hour
+			ticker := time.NewTicker(cleanupInterval)
+			defer ticker.Stop()
+
+			logger.Info("rate limiter cleanup goroutine started",
+				"cleanup_interval", cleanupInterval,
+				"max_age", maxAge)
+
+			for {
+				select {
+				case <-ticker.C:
+					deletedCount := rlm.cleanupOldEntries(maxAge)
+					totalEntries, rps, burst := rlm.getStats()
+
+					if deletedCount > 0 {
+						logger.Debug("rate limiter cleanup completed",
+							"deleted_entries", deletedCount,
+							"remaining_entries", totalEntries,
+							"rps_limit", rps,
+							"burst_limit", burst)
+					}
+				}
+			}
+		}()
+	}
+
+	logger.Info("rate limiter initialized",
+		"enabled", cfg.limiter.enabled,
+		"rps", cfg.limiter.rps,
+		"burst", cfg.limiter.burst)
+
+	return rlm
+}
+
 func main() {
 	var cfg config
 
@@ -222,6 +266,11 @@ func main() {
 	flag.IntVar(&cfg.port, "port", 4000, "API server port")
 	flag.StringVar(&cfg.env, "env", "development", "Environment (development|staging|production)")
 	flag.StringVar(&cfg.logLevel, "log-level", "info", "Log level (debug|info|warn|error)")
+
+	// Rate limiter flags
+	flag.BoolVar(&cfg.limiter.enabled, "limiter-enabled", true, "Enable rate limiting")
+	flag.Float64Var(&cfg.limiter.rps, "limiter-rps", 2.0, "Rate limiter requests per second")
+	flag.IntVar(&cfg.limiter.burst, "limiter-burst", 4, "Rate limiter maximum burst size")
 
 	flag.Parse()
 
@@ -242,10 +291,10 @@ func main() {
 	cfg.db.maxIdleConns = getEnvInt("DB_MAX_IDLE_CONNECTIONS", 5)
 	cfg.db.maxLifetime = getEnvDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute)
 
-	// Rate Limiter Configuration
-	cfg.limiter.enabled = getEnvBool("RATE_LIMITER_ENABLED", true)
-	cfg.limiter.rps = getEnvFloat("RATE_LIMITER_RPS", 10.0)
-	cfg.limiter.burst = getEnvInt("RATE_LIMITER_BURST", 20)
+	// Rate Limiter Configuration (use flag values as defaults)
+	cfg.limiter.enabled = getEnvBool("RATE_LIMITER_ENABLED", cfg.limiter.enabled)
+	cfg.limiter.rps = getEnvFloat("RATE_LIMITER_RPS", cfg.limiter.rps)
+	cfg.limiter.burst = getEnvInt("RATE_LIMITER_BURST", cfg.limiter.burst)
 
 	// Parse log level
 	var level jsonlog.Level
@@ -275,10 +324,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Story 5.2: Initialize Rate Limiter with IP-based controls
+	rateLimiter := initializeRateLimiter(cfg, logger)
+
 	app := &application{
-		config:     cfg,
-		logger:     logger,
-		statistics: statsHandler,
+		config:      cfg,
+		logger:      logger,
+		statistics:  statsHandler,
+		rateLimiter: rateLimiter,
 	}
 
 	srv := &http.Server{
