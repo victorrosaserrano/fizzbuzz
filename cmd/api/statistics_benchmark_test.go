@@ -18,7 +18,7 @@ func BenchmarkFizzBuzzWithStatistics(b *testing.B) {
 			logLevel: "info",
 		},
 		logger:     jsonlog.New(io.Discard, jsonlog.LevelInfo, "test"),
-		statistics: statisticsHandler{service: data.NewStatisticsService(&mockRepository{})},
+		statistics: &statisticsHandler{service: data.NewStatisticsService(&mockRepository{})},
 	}
 
 	payload := `{

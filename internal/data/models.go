@@ -61,3 +61,27 @@ type FizzBuzzOutput struct {
 func (f FizzBuzzOutput) String() string {
 	return fmt.Sprintf("FizzBuzzOutput{result_length=%d}", len(f.Result))
 }
+
+// HealthCheckResponse represents the comprehensive health check response structure.
+// Provides system status, version information, and optional database connectivity details.
+type HealthCheckResponse struct {
+	Status     string              `json:"status"`
+	SystemInfo SystemInfo          `json:"system_info"`
+	Database   *DatabaseHealthInfo `json:"database,omitempty"`
+}
+
+// SystemInfo contains basic application information for health checks.
+type SystemInfo struct {
+	Environment string `json:"environment"`
+	Version     string `json:"version"`
+	Timestamp   string `json:"timestamp"`
+}
+
+// DatabaseHealthInfo provides database connectivity and connection pool status.
+type DatabaseHealthInfo struct {
+	Status         string `json:"status"`
+	ResponseTimeMs int64  `json:"response_time_ms"`
+	ActiveConns    int32  `json:"active_connections"`
+	IdleConns      int32  `json:"idle_connections"`
+	MaxConns       int32  `json:"max_connections"`
+}

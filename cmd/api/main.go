@@ -22,14 +22,24 @@ var (
 	version   string
 )
 
+// StatisticsHandlerInterface defines the interface for statistics operations
+type StatisticsHandlerInterface interface {
+	Record(ctx context.Context, input *data.FizzBuzzInput) error
+	GetMostFrequent(ctx context.Context) (*data.StatisticsEntry, error)
+	GetDatabaseHealth(ctx context.Context) (map[string]interface{}, error)
+	RecordLegacy(input *data.FizzBuzzInput, logger *jsonlog.Logger)
+	GetMostFrequentLegacy(logger *jsonlog.Logger) *data.StatisticsEntry
+	Close() error
+}
+
 type application struct {
 	config      config
 	logger      *jsonlog.Logger
-	statistics  statisticsHandler
+	statistics  StatisticsHandlerInterface
 	rateLimiter *rateLimiterMap
 }
 
-// statisticsHandler provides interface for statistics operations
+// statisticsHandler provides concrete implementation for statistics operations
 // Story 4.6: Direct PostgreSQL access with context-aware operations
 type statisticsHandler struct {
 	service *data.StatisticsService // PostgreSQL-backed implementation only
@@ -85,6 +95,27 @@ func (sh *statisticsHandler) GetMostFrequentLegacy(logger *jsonlog.Logger) *data
 		return nil
 	}
 	return entry
+}
+
+// GetDatabaseHealth returns database connectivity status and connection pool metrics
+func (sh *statisticsHandler) GetDatabaseHealth(ctx context.Context) (map[string]interface{}, error) {
+	if sh.service == nil {
+		return map[string]interface{}{
+			"status": "unavailable",
+			"error":  "statistics service not initialized",
+		}, errors.New("statistics service not initialized")
+	}
+
+	// Use the service's health check method
+	return sh.service.GetDatabaseHealth(ctx)
+}
+
+// Close closes the database connections
+func (sh *statisticsHandler) Close() error {
+	if sh.service == nil {
+		return nil
+	}
+	return sh.service.Close()
 }
 
 type config struct {
@@ -161,7 +192,7 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 
 // initializePostgreSQLStatistics initializes PostgreSQL connection pool and statistics service
 // Story 4.6: Direct PostgreSQL access with connection pooling and context-aware operations
-func initializePostgreSQLStatistics(cfg config, logger *jsonlog.Logger) (statisticsHandler, error) {
+func initializePostgreSQLStatistics(cfg config, logger *jsonlog.Logger) (StatisticsHandlerInterface, error) {
 	// Build PostgreSQL connection string
 	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		cfg.db.host, cfg.db.port, cfg.db.user, cfg.db.password, cfg.db.name, cfg.db.sslMode)
@@ -169,7 +200,7 @@ func initializePostgreSQLStatistics(cfg config, logger *jsonlog.Logger) (statist
 	// Configure connection pool with optimized settings for FizzBuzz workload
 	poolConfig, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		return statisticsHandler{}, fmt.Errorf("failed to parse database config: %w", err)
+		return nil, fmt.Errorf("failed to parse database config: %w", err)
 	}
 
 	// Connection pooling configuration for optimal performance
@@ -186,14 +217,14 @@ func initializePostgreSQLStatistics(cfg config, logger *jsonlog.Logger) (statist
 	// Create connection pool with timeout
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
-		return statisticsHandler{}, fmt.Errorf("failed to create connection pool: %w", err)
+		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
 
 	// Test connectivity with ping
 	err = pool.Ping(ctx)
 	if err != nil {
 		pool.Close()
-		return statisticsHandler{}, fmt.Errorf("failed to ping database: %w", err)
+		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	// Initialize repository with optimized timeout for FizzBuzz operations
@@ -211,7 +242,7 @@ func initializePostgreSQLStatistics(cfg config, logger *jsonlog.Logger) (statist
 		"operation_timeout", operationTimeout,
 		"pool_health_check_period", poolConfig.HealthCheckPeriod)
 
-	return statisticsHandler{
+	return &statisticsHandler{
 		service: service,
 	}, nil
 }
@@ -363,10 +394,10 @@ func main() {
 		}
 
 		// Story 4.6: Cleanup PostgreSQL connections on shutdown
-		if app.statistics.service != nil {
+		if app.statistics != nil {
 			logger.Info("closing database connections")
 
-			err := app.statistics.service.Close()
+			err := app.statistics.Close()
 			if err != nil {
 				logger.Error("failed to close database connections", "error", err)
 			} else {

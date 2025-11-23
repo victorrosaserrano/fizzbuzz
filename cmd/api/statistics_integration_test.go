@@ -169,7 +169,7 @@ func TestStatisticsGracefulDegradation(t *testing.T) {
 			env:  "test",
 		},
 		logger:     testLogger(),
-		statistics: statisticsHandler{service: data.NewStatisticsService(newMockRepository())},
+		statistics: &statisticsHandler{service: data.NewStatisticsService(newMockRepository())},
 	}
 
 	payload := `{
