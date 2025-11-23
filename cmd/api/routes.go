@@ -16,7 +16,7 @@ func (app *application) routes() http.Handler {
 	router.HandlerFunc(http.MethodPost, "/v1/fizzbuzz", app.fizzbuzzHandler)
 	router.HandlerFunc(http.MethodGet, "/v1/statistics", app.statisticsHandler)
 
-	return app.correlationID(app.logRequest(app.recoverPanic(router)))
+	return app.correlationID(app.logRequest(app.rateLimit(app.rateLimiter)(app.recoverPanic(router))))
 }
 
 func (app *application) healthcheckHandler(w http.ResponseWriter, r *http.Request) {

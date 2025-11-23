@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type envelope map[string]any
@@ -147,4 +149,16 @@ func (app *application) failedValidationResponse(w http.ResponseWriter, r *http.
 
 func (app *application) errorResponse(w http.ResponseWriter, r *http.Request, status int, message string) {
 	app.errorJSON(w, r, status, message)
+}
+
+func (app *application) rateLimitExceededResponse(w http.ResponseWriter, r *http.Request, retryAfter time.Duration) {
+	// Set Retry-After header with suggested wait time in seconds
+	retryAfterSeconds := int(retryAfter.Seconds())
+	if retryAfterSeconds < 1 {
+		retryAfterSeconds = 1
+	}
+	w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfterSeconds))
+
+	message := "rate limit exceeded - too many requests from this IP address"
+	app.errorJSON(w, r, http.StatusTooManyRequests, message)
 }
