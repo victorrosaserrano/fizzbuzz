@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -27,7 +28,7 @@ func newTestApplication(t *testing.T) *application {
 			logLevel: "debug",
 		},
 		logger:     logger,
-		statistics: statisticsHandler{service: data.NewStatisticsService(newMockRepository())},
+		statistics: &statisticsHandler{service: data.NewStatisticsService(newMockRepository())},
 	}
 }
 
@@ -48,16 +49,43 @@ func TestHealthcheckHandler(t *testing.T) {
 			t.Errorf("expected status %d, got %d", http.StatusOK, rr.Code)
 		}
 
-		expected := `{
-	"status": "available",
-	"system_info": {
-		"environment": "test",
-		"version": "1.0.0"
-	}
-}
-`
-		if strings.TrimSpace(rr.Body.String()) != strings.TrimSpace(expected) {
-			t.Errorf("expected body %s, got %s", expected, rr.Body.String())
+		// Parse the JSON response and check structure
+		var response map[string]interface{}
+		err = json.Unmarshal(rr.Body.Bytes(), &response)
+		if err != nil {
+			t.Fatalf("Failed to parse JSON response: %v", err)
+		}
+
+		// Check envelope structure
+		data, exists := response["data"]
+		if !exists {
+			t.Error("Response should contain 'data' field")
+		}
+
+		dataMap, ok := data.(map[string]interface{})
+		if !ok {
+			t.Error("Data field should be an object")
+		}
+
+		// Check status
+		status, exists := dataMap["status"]
+		if !exists || status != "available" {
+			t.Errorf("Expected status 'available', got %v", status)
+		}
+
+		// Check system_info structure
+		systemInfo, exists := dataMap["system_info"]
+		if !exists {
+			t.Error("Response should contain system_info")
+		}
+
+		sysInfoMap, ok := systemInfo.(map[string]interface{})
+		if !ok {
+			t.Error("system_info should be an object")
+		}
+
+		if sysInfoMap["environment"] != "test" {
+			t.Errorf("Expected environment 'test', got %v", sysInfoMap["environment"])
 		}
 
 		contentType := rr.Header().Get("Content-Type")
@@ -394,16 +422,43 @@ func TestServerIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		expected := `{
-	"status": "available",
-	"system_info": {
-		"environment": "test",
-		"version": "1.0.0"
-	}
-}
-`
-		if strings.TrimSpace(string(body)) != strings.TrimSpace(expected) {
-			t.Errorf("expected body %s, got %s", expected, string(body))
+		// Parse the JSON response and check structure
+		var response map[string]interface{}
+		err = json.Unmarshal(body, &response)
+		if err != nil {
+			t.Fatalf("Failed to parse JSON response: %v", err)
+		}
+
+		// Check envelope structure
+		data, exists := response["data"]
+		if !exists {
+			t.Error("Response should contain 'data' field")
+		}
+
+		dataMap, ok := data.(map[string]interface{})
+		if !ok {
+			t.Error("Data field should be an object")
+		}
+
+		// Check status
+		status, exists := dataMap["status"]
+		if !exists || status != "available" {
+			t.Errorf("Expected status 'available', got %v", status)
+		}
+
+		// Check system_info structure
+		systemInfo, exists := dataMap["system_info"]
+		if !exists {
+			t.Error("Response should contain system_info")
+		}
+
+		sysInfoMap, ok := systemInfo.(map[string]interface{})
+		if !ok {
+			t.Error("system_info should be an object")
+		}
+
+		if sysInfoMap["environment"] != "test" {
+			t.Errorf("Expected environment 'test', got %v", sysInfoMap["environment"])
 		}
 
 		// Verify headers

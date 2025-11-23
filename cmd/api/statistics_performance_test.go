@@ -25,7 +25,7 @@ func BenchmarkStatisticsRecord(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to initialize PostgreSQL statistics: %v", err)
 	}
-	defer handler.service.Close()
+	defer handler.Close()
 
 	input := &data.FizzBuzzInput{
 		Int1:  3,
@@ -62,7 +62,7 @@ func BenchmarkStatisticsGetMostFrequent(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to initialize PostgreSQL statistics: %v", err)
 	}
-	defer handler.service.Close()
+	defer handler.Close()
 
 	// Populate some data first
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -122,7 +122,7 @@ func BenchmarkConnectionPoolUtilization(b *testing.B) {
 			if err != nil {
 				b.Fatalf("Failed to initialize PostgreSQL statistics: %v", err)
 			}
-			defer handler.service.Close()
+			defer handler.Close()
 
 			input := &data.FizzBuzzInput{
 				Int1:  3,
@@ -161,7 +161,7 @@ func BenchmarkMixedOperations(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to initialize PostgreSQL statistics: %v", err)
 	}
-	defer handler.service.Close()
+	defer handler.Close()
 
 	input := &data.FizzBuzzInput{
 		Int1:  3,
@@ -219,7 +219,7 @@ func BenchmarkStatisticsWithTimeout(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to initialize PostgreSQL statistics: %v", err)
 	}
-	defer handler.service.Close()
+	defer handler.Close()
 
 	input := &data.FizzBuzzInput{
 		Int1:  3,

@@ -23,9 +23,14 @@ func TestPostgreSQLStatisticsInitialization(t *testing.T) {
 	cfg := getTestConfig()
 	logger := getTestLogger()
 
-	handler, err := initializePostgreSQLStatistics(cfg, logger)
+	handlerInterface, err := initializePostgreSQLStatistics(cfg, logger)
 	if err != nil {
 		t.Fatalf("Failed to initialize PostgreSQL statistics: %v", err)
+	}
+
+	handler, ok := handlerInterface.(*statisticsHandler)
+	if !ok {
+		t.Fatal("Expected handler to be *statisticsHandler")
 	}
 
 	if handler.service == nil {
@@ -61,7 +66,7 @@ func TestPostgreSQLStatisticsInitialization(t *testing.T) {
 	}
 
 	// Test service cleanup
-	err = handler.service.Close()
+	err = handler.Close()
 	if err != nil {
 		t.Errorf("Failed to close service: %v", err)
 	}
@@ -80,7 +85,7 @@ func TestConnectionPoolingPerformance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to initialize PostgreSQL statistics: %v", err)
 	}
-	defer handler.service.Close()
+	defer handler.Close()
 
 	// Test concurrent operations to validate connection pooling
 	const numOperations = 50
@@ -143,7 +148,7 @@ func TestContextTimeoutIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to initialize PostgreSQL statistics: %v", err)
 	}
-	defer handler.service.Close()
+	defer handler.Close()
 
 	input := &data.FizzBuzzInput{
 		Int1:  3,

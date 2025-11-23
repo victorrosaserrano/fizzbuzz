@@ -236,3 +236,33 @@ func (ss *StatisticsService) Close() error {
 	}
 	return nil
 }
+
+// GetDatabaseHealth provides health check information for the database repository
+// Story 5.3: Health check endpoint integration
+func (ss *StatisticsService) GetDatabaseHealth(ctx context.Context) (map[string]interface{}, error) {
+	if ss.repository == nil {
+		return map[string]interface{}{
+			"status": "unavailable",
+			"error":  "repository not initialized",
+		}, fmt.Errorf("repository not initialized")
+	}
+
+	// Check if repository implements health check interface
+	if healthRepo, ok := ss.repository.(*PostgreSQLStatisticsRepository); ok {
+		return healthRepo.Health(ctx)
+	}
+
+	// Fallback: test basic functionality
+	_, err := ss.repository.GetMostFrequent(ctx)
+	if err != nil {
+		return map[string]interface{}{
+			"status": "unhealthy",
+			"error":  err.Error(),
+		}, err
+	}
+
+	return map[string]interface{}{
+		"status":  "healthy",
+		"message": "basic database connectivity verified",
+	}, nil
+}
